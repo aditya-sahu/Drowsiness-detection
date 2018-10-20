@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Camera;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -17,6 +18,7 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
+import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.ImageReader;
 import android.net.Uri;
@@ -32,6 +34,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Size;
 import android.util.SparseArray;
+import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
@@ -39,6 +42,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ImageView;
 
 import com.google.android.gms.vision.Frame;
 import com.google.android.gms.vision.face.Face;
@@ -49,6 +53,7 @@ import org.w3c.dom.Text;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.util.Collections;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -59,7 +64,8 @@ public class MainActivity extends AppCompatActivity {
     private Size imageDimension;
     private ImageReader imageReader;
 
-    private static final int REQUESR_CAMERA_PERMISSION = 200;
+    private static final int REQUEST_CAMERA_PERMISSION = 200;
+    private static final int CAMERA_REQUEST_CODE = 1501053;
 
     TextureView textureView;
     TextView txtSampleDesc;
@@ -69,19 +75,62 @@ public class MainActivity extends AppCompatActivity {
     Size size;
     Handler backgroundHandler;
     HandlerThread handlerThread;
-
-
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
+        @Override
+        public void onOpened(@NonNull CameraDevice camera) {
+            cameraDevice = camera;
+            createCaptureSession();
+        }
+
+        @Override
+        public void onDisconnected(@NonNull CameraDevice camera) {
+
+        }
+
+        @Override
+        public void onError(@NonNull CameraDevice camera, int error) {
+
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         textureView = (TextureView) findViewById(R.id.mainView);
-    }
+        img = R.drawable.no;
+        detector = new FaceDetector.Builder(
 
+                getApplicationContext())
+                .setTrackingEnabled(false)
+                .setLandmarkType(FaceDetector.ALL_CLASSIFICATIONS)
+                .setClassificationType(FaceDetector.ALL_CLASSIFICATIONS)
+                .build();
+
+        initViews();
+    }
+    private void openCamera()
+    {
+        if(Build.VERSION.SDK_INT>=23)
+        {
+            if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)
+            {
+                requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA_REQUEST_CODE);
+            }
+            else {
+                try {
+                    cameraManager.openCamera(cameraId,stateCallback, backgroundHandler);
+                } catch (CameraAccessException e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }
+    }
     private void openBackgroundHandler() {
-        HandlerThread handlerThread = new HandlerThread("Camera_app");
+        handlerThread = new HandlerThread("camera_app");
         handlerThread.start();
         backgroundHandler = new Handler(handlerThread.getLooper());
     }
@@ -108,57 +157,74 @@ public class MainActivity extends AppCompatActivity {
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
-
-        textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener()
-
-        {
-            @Override
-            public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-                openCamera();
-            }
-
-            @Override
-            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-
-            }
-
-            @Override
-            public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-                return false;
-            }
-
-            @Override
-            public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-
-            }
-
-            private void openCamera() {
-
-            }
-        });
-
-
-
-
-
-
-
-
-
-
-
-
-        img = R.drawable.no;
-        detector = new FaceDetector.Builder(
-
-                getApplicationContext())
-                .setTrackingEnabled(false)
-                .setLandmarkType(FaceDetector.ALL_CLASSIFICATIONS)
-                .setClassificationType(FaceDetector.ALL_CLASSIFICATIONS)
-                .build();
-
-        initViews();
     }
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+        private void createCaptureSession() {
+            SurfaceTexture surfaceTexture = textureView.getSurfaceTexture();
+            surfaceTexture.setDefaultBufferSize(size.getWidth(), size.getHeight());
+            Surface surface = new Surface(surfaceTexture);
+            try {
+                cameraDevice.createCaptureSession(Collections.singletonList(surface), new CameraCaptureSession.StateCallback() {
+                    @Override
+                    public void onConfigured(@NonNull CameraCaptureSession session) {
+                        CaptureRequest.Builder captureRequestBuilder = null;
+                        try {
+                            captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                        } catch (CameraAccessException e) {
+                            e.printStackTrace();
+                        }
+                        try {
+                            session.setRepeatingRequest(captureRequestBuilder.build(),null,backgroundHandler);
+                        } catch (CameraAccessException e) {
+                            e.printStackTrace();
+                        }
+                    }
+
+                    @Override
+                    public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+
+                    }
+                }, backgroundHandler);
+            } catch (CameraAccessException e) {
+                e.printStackTrace();;
+            }
+        }
+
+        @Override
+        protected void onResume() {
+            super.onResume();
+            textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+                @Override
+                public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+                    openBackgroundHandler();
+                    setupCamera();
+                    openCamera();
+                }
+
+                @Override
+                public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+
+                }
+
+                @Override
+                public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+                    return false;
+                }
+
+                @Override
+                public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+
+                }
+            });
+        }
+        protected void onPause() {
+            super.onPause();
+            closeBackgroundHandler();
+        }
+
+
+
     private void initViews() {
         TextureView layoutmain = (TextureView) findViewById(R.id.mainView);
         txtSampleDesc = (TextView) findViewById(R.id.txtSampleDescription3);
@@ -214,7 +280,7 @@ public class MainActivity extends AppCompatActivity {
             if (faces.size() == 0) {
                 txtSampleDesc.setText("Scan Failed: Found nothing to scan");
             } else {
-                imageView.setImageBitmap(editedBitmap);
+                //imageView.setImageBitmap(editedBitmap);
                 txtSampleDesc.setText(txtSampleDesc.getText() + "No of Faces Detected: " + " " + String.valueOf(faces.size()));
             }
         } else {
