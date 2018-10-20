@@ -61,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQUESR_CAMERA_PERMISSION = 200;
 
-
     TextureView textureView;
     TextView txtSampleDesc;
     private FaceDetector detector;
